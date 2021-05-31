@@ -1,0 +1,27 @@
+{
+  "name": "screeps-starter-rust",
+  "version": "1.0.0",
+  "description": "Starter Rust AI for [Screeps][screeps], the JavaScript-based MMO game.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khoover/screeps-starter-rust.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/khoover/screeps-starter-rust/issues"
+  },
+  "homepage": "https://github.com/khoover/screeps-starter-rust#readme",
+  "dependencies": {
+    "fastestsmallesttextencoderdecoder": "^1.0.22",
+    "recast": "^0.20.4",
+    "rollup": "^2.50.5"
+  },
+  "scripts": {
+      "build": "rollup -i './javascript/main.js' -o './dist/test-rollup.js' -f cjs"
+  }
+}
