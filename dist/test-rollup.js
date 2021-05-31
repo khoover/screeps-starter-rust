@@ -159,8 +159,8 @@ function init(module) {
     return wasm$1;
 }
 
-let wasm_module = new WebAssembly.Module(require('fs').readFileSync('../rust-out/screeps_starter_rust_bg.wasm'));
-let wasm = init(wasm_module);
+let wasm_module = Game.cpu.bucket >= 500 ? new WebAssembly.Module(require('screeps_starter_rust_bg')) : null;
+let wasm = Game.cpu.bucket >= 500 ? init(wasm_module) : null;
 
 function console_error(...args) {
     console.log(...args);
