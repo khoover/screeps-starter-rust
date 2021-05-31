@@ -4,7 +4,8 @@
   "description": "Starter Rust AI for [Screeps][screeps], the JavaScript-based MMO game.",
   "main": "index.js",
   "scripts": {
-    "build": "rollup -i './javascript/main.js' -o './dist/test-rollup.js' -f cjs"
+    "build": "gulp",
+    "clean": "gulp clean"
   },
   "repository": {
     "type": "git",
