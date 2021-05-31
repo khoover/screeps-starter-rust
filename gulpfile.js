@@ -28,6 +28,7 @@ function parse_generated_js(code) {
     const ast = recast.parse(code);
 
     let insideInit = false;
+    let imported_polyfill = false;
     recast.visit(ast, {
         visitFunction(path) {
             const node = path.node;
@@ -66,10 +67,14 @@ function parse_generated_js(code) {
                 ]);
             }
             return false;
+        },
+        visitImportDeclaration(path) {
+            if (path.node.source.value === "fastestsmallesttextencoderdecoder") imported_polyfill = true;
+            return false;
         }
     });
 
-    ast.program.body.unshift(
+    if (!imported_polyfill) ast.program.body.unshift(
         b.importDeclaration(
             [
                 b.importSpecifier(b.identifier('TextEncoder')),
