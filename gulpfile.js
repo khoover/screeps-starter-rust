@@ -1,12 +1,12 @@
 const exec = require('child_process').exec;
 const { src, dest, series, parallel } = require('gulp');
 const through2 = require('through2');
-const clean = require('gulp-clean');
 const recast = require('recast');
 const fs = require('fs');
 const { Transform } = require('stream');
 const rollup = require('rollup');
 const node_resolve = require('@rollup/plugin-node-resolve');
+const del = require('del');
 
 const parse = recast.parse;
 const print = recast.print;
@@ -113,9 +113,7 @@ async function run_rollup() {
 }
 
 exports.clean = () => {
-    return src('dist', {read: false})
-        .pipe(src('rust-out', {read: false}))
-        .pipe(clean());
+    return del(['dist', 'rust-out']);
 }
 
 function move_wasm() {
