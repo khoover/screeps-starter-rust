@@ -1,28 +1,13 @@
 "use strict";
-let wasm_module = Game.cpu.bucket >= 500 ? new WebAssembly.Module(require('screeps_starter_rust_bg')) : null;
+/*import { readFileSync } from 'fs';
 import init from '../rust-out/screeps_starter_rust.js';
-let wasm = Game.cpu.bucket >= 500 ? init(wasm_module) : null;
-
-function console_error(...args) {
-    console.log(...args);
-    Game.notify(args.join(' '));
-}
-
-export const loop = function() {
-    try {
-        if (!wasm) {
-            wasm = init(wasm_module);
-        }
-        wasm.make_call();
-        wasm = null;
-    } catch(error) {
-        console_error("caught exception:", error);
-        if (error.stack) {
-            console_error("stack trace:", error.stack);
-        }
-        console_error("resetting VM next tick.");
-        wasm = null;
-    }
-}
-
-loop();
+let start = Date.now();
+let wasm_module = new WebAssembly.Module(readFileSync('dist/screeps_starter_rust_bg.wasm'));
+let mid = Date.now();
+let wasm = init(wasm_module);
+let end = Date.now();
+console.log("Compile: ", (mid - start));
+console.log("Instantiate: ", (end - mid));
+wasm.then((m) => {m.make_call()});*/
+const wasm = require("../rust-out/screeps_starter_rust.js");
+wasm.make_call();
