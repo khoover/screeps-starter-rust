@@ -21,6 +21,7 @@
     "@rollup/plugin-node-resolve": "^13.0.0",
     "del": "^6.0.0",
     "fastestsmallesttextencoderdecoder": "^1.0.22",
+    "fastestsmallesttextencoderdecoder-encodeinto": "^1.0.22",
     "gulp": "^4.0.2",
     "recast": "^0.20.4",
     "rollup": "^2.50.5",

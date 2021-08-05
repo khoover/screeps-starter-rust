@@ -14,7 +14,7 @@ const n = recast.types.namedTypes;
 const b = recast.types.builders;
 
 function wasm_pack(cb) {
-    exec('wasm-pack build --target nodejs --release --out-dir rust-out --no-typescript', (err, stdout, stderr) => {
+    exec('wasm-pack build --target web --release --out-dir rust-out --no-typescript', (err, stdout, stderr) => {
         console.log(stdout);
         console.error(stderr);
         cb(err);
@@ -69,7 +69,7 @@ function parse_generated_js(code) {
             return false;
         },
         visitImportDeclaration(path) {
-            if (path.node.source.value === "fastestsmallesttextencoderdecoder") imported_polyfill = true;
+            if (path.node.source.value === "fastestsmallesttextencoderdecoder-encodeinto") imported_polyfill = true;
             return false;
         }
     });
@@ -80,7 +80,7 @@ function parse_generated_js(code) {
                 b.importSpecifier(b.identifier('TextEncoder')),
                 b.importSpecifier(b.identifier('TextDecoder'))
             ],
-            b.literal("fastestsmallesttextencoderdecoder")
+            b.literal("fastestsmallesttextencoderdecoder-encodeinto")
         )
     );
     return recast.print(ast).code;
@@ -121,4 +121,4 @@ function move_wasm() {
         .pipe(dest('dist'));
 }
 
-exports.default = series(wasm_pack, parallel(series(/*fix_generated_code, */run_rollup), move_wasm));
+exports.default = series(wasm_pack, parallel(series(fix_generated_code, run_rollup), move_wasm));
