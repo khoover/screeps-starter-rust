@@ -1,3 +1,9 @@
+#![feature(test)]
+#![feature(bench_black_box)]
+
+#[macro_use]
+extern crate lazy_static;
+
 use wasm_bindgen::prelude::*;
 use web_sys::console;
 use js_sys::JsString;
@@ -9,7 +15,7 @@ macro_rules! console_log {
     ($($t:tt)*) => (console::log_1(&format_args!($($t)*).to_string().into()))
 }
 
-#[wasm_bindgen(inline_js = "const fromCharCode = String.fromCharCode; export function utf16_to_jsstring(utf16) { let ret = ''; let i = 0; for (; i < utf16.length - 32; i += 32) { ret += fromCharCode(
+#[cfg_attr(not(feature = "no_web"), wasm_bindgen(inline_js = "const fromCharCode = String.fromCharCode; export function utf16_to_jsstring(utf16) { let ret = ''; let i = 0; for (; i < utf16.length - 32; i += 32) { ret += fromCharCode(
     utf16[i+0], utf16[i+1], utf16[i+2], utf16[i+3], utf16[i+4], utf16[i+5], utf16[i+6], utf16[i+7], utf16[i+8], utf16[i+9],
     utf16[i+10], utf16[i+11], utf16[i+12], utf16[i+13], utf16[i+14], utf16[i+15], utf16[i+16], utf16[i+17], utf16[i+18], utf16[i+19],
     utf16[i+20], utf16[i+21], utf16[i+22], utf16[i+23], utf16[i+24], utf16[i+25], utf16[i+26], utf16[i+27], utf16[i+28], utf16[i+29],
@@ -21,12 +27,44 @@ export function jsstring_to_utf16(s, buf) {
     for (let i = 0; i < buf.length; ++i) {
         buf[i] = s.charCodeAt(i);
     }
-}")]
+}"))]
+#[cfg(not(feature = "no_web"))]
 extern "C" {
     fn utf16_to_jsstring(utf16: &[u16]) -> JsString;
 
     #[wasm_bindgen(catch)]
     fn jsstring_to_utf16(s: &JsString, utf16: &mut [u16]) -> Result<(), JsValue>;
+}
+
+#[cfg(feature = "no_web")]
+use js_sys::{Function, Uint16Array};
+#[cfg(feature = "no_web")]
+use wasm_bindgen::JsCast;
+
+#[cfg(feature = "no_web")]
+fn utf16_to_jsstring(utf16: &[u16]) -> JsString {
+    thread_local!(static INNER_FUNC: Function = Function::new_with_args(&"utf16", &"const fromCharCode = String.fromCharCode; let ret = ''; let i = 0; for (; i < utf16.length - 32; i += 32) { ret += fromCharCode(
+    utf16[i+0], utf16[i+1], utf16[i+2], utf16[i+3], utf16[i+4], utf16[i+5], utf16[i+6], utf16[i+7], utf16[i+8], utf16[i+9],
+    utf16[i+10], utf16[i+11], utf16[i+12], utf16[i+13], utf16[i+14], utf16[i+15], utf16[i+16], utf16[i+17], utf16[i+18], utf16[i+19],
+    utf16[i+20], utf16[i+21], utf16[i+22], utf16[i+23], utf16[i+24], utf16[i+25], utf16[i+26], utf16[i+27], utf16[i+28], utf16[i+29],
+    utf16[i+30], utf16[i+31]
+); } if (i != utf16.length) ret += fromCharCode.apply(String, utf16.subarray(i, i+32)); return ret;"));
+    INNER_FUNC.with(move |f| {
+        let buf = unsafe { Uint16Array::view(utf16) };
+        f.call1(&JsValue::NULL, &buf).expect("Unexpected error while copying UTF-15 to JsString.").unchecked_into()
+    })
+}
+
+#[cfg(feature = "no_web")]
+fn jsstring_to_utf16(s: &JsString, utf16: &mut [u16]) -> Result<(), JsValue> {
+    thread_local!(static INNER_FUNC: Function = Function::new_with_args(&"s, buf", &"if (buf.length < s.length) throw new Error('Insufficient buffer space to store string.');
+    for (let i = 0; i < buf.length; ++i) {
+        buf[i] = s.charCodeAt(i);
+    }"));
+    INNER_FUNC.with(move |f| {
+        let buf = unsafe { Uint16Array::view(utf16) };
+        f.call2(&JsValue::NULL, s, &buf).map(|_| ())
+    })
 }
 
 const LOW_FIFTEEN_BITS: u64 = 0x7FFF;
@@ -71,7 +109,7 @@ fn bytestring_to_utf15(bytes: &[u8]) -> Vec<u16> {
     let mut output_index: usize = 1;
     let mut input_index: usize = 0;
     let last_fast_index = bytes.len().saturating_sub(120);
-    
+
     if last_fast_index > 0 {
         while input_index <= last_fast_index {
             let bytes_chunk = &bytes[input_index..input_index + INPUT_BLOCK_SIZE];
@@ -121,7 +159,7 @@ pub fn bytestring_to_jsstring(bytes: &[u8]) -> JsString {
 #[inline(always)]
 fn decode_block(input: &[u16], remainder: u64, output: &mut [u8]) {
     let mut accum = remainder;
-    
+
     accum |= (input[0] as u64) << 4;
     accum |= (input[1] as u64) << 19;
     accum |= (input[2] as u64) << 34;
@@ -149,7 +187,7 @@ pub fn jsstring_to_bytestring(utf15: &JsString) -> Vec<u8> {
     let first = utf15_vec[0];
     assert!(first == 0x0030 || first == 0x0031);
     let utf15_vec = &utf15_vec[1..];
-    assert_eq!(utf15_vec.iter().max().unwrap() & 0x8000, 0);
+//    assert_eq!(utf15_vec.iter().max().unwrap() & 0x8000, 0);
 
     let has_remainder = first == 0x0031;
     let (fast_blocks, remainder_size): (usize, usize) = if has_remainder {
@@ -239,25 +277,105 @@ pub fn jsstring_to_bytestring(utf15: &JsString) -> Vec<u8> {
     output
 }
 
+use std::{cell::RefCell, sync::RwLock, collections::HashMap};
+thread_local! {
+    static TL_CELL: RefCell<HashMap<u8, u8>> = RefCell::new(HashMap::new());
+}
+
+lazy_static! {
+    static ref RWLOCK: RwLock<HashMap<u8, u8>> = RwLock::new(HashMap::new());
+}
+
+#[cfg_attr(not(feature = "no_web"), wasm_bindgen(inline_js = "function getRandomInt(min, max) {
+    min = Math.ceil(min);
+    max = Math.floor(max);
+    return Math.floor(Math.random() * (max - min) + min); //The maximum is exclusive and the minimum is inclusive
+}
+
+export function fill_random(bytes) {
+    let i = 0;
+    for (; i < bytes.length - 4; i += 4) {
+        const randU32 = getRandomInt(0, 0x100000000);
+        bytes[i] = randU32 & 0xFF;
+        bytes[i+1] = (randU32 >> 4) & 0xFF;
+        bytes[i+2] = (randU32 >> 8) & 0xFF;
+        bytes[i+3] = (randU32 >> 12) & 0xFF;
+    }
+    for (; i < bytes.length; ++i) {
+        bytes[i] = getRandomInt(0, 256);
+    }
+}"))]
+#[cfg(not(feature = "no_web"))]
+extern "C" {
+    fn fill_random(bytes: &mut [u8]);
+}
+
+#[cfg(feature = "no_web")]
+fn fill_random(bytes: &mut [u8]) {
+    thread_local!(static INNER_FUNC: Function = Function::new_with_args(&"bytes", &"let i = 0;
+    for (; i < bytes.length - 4; i += 4) {
+        const randU32 = getRandomInt(0, 0x100000000);
+        bytes[i] = randU32 & 0xFF;
+        bytes[i+1] = (randU32 >> 4) & 0xFF;
+        bytes[i+2] = (randU32 >> 8) & 0xFF;
+        bytes[i+3] = (randU32 >> 12) & 0xFF;
+    }
+    for (; i < bytes.length; ++i) {
+        bytes[i] = getRandomInt(0, 256);
+    }
+}"));
+    INNER_FUNC.with(move |f| {
+        let buf = unsafe { Uint8Array::view(bytes) };
+        f.call1(&JsValue::NULL, &buf).expect("Unexpected error while filling bytes.");
+    });
+}
+
+fn replacement_getrandom(bytes: &mut [u8]) -> Result<(), getrandom::Error> {
+    fill_random(bytes);
+    Ok(())
+}
+
+use getrandom::register_custom_getrandom;
+
+register_custom_getrandom!(replacement_getrandom);
 
 #[wasm_bindgen]
 pub fn make_call() {
+    console_error_panic_hook::set_once();
+
     use getrandom::getrandom;
-    use base64::{encode, decode, encode_config_slice, STANDARD};
+    use base64::{decode, encode_config_slice, STANDARD};
     use std::time::Duration;
+    use std::convert::TryFrom;
     use js_sys::Date;
+
     const RUNS: usize = 1000;
     const NINE_NINE_INDEX: usize = (RUNS / 100) * 99 - 1;
-    const BYTES: usize = 1*1024*1024;
+    const BYTES: usize = 3*1024*1024;
 
+    let start = Date::now();
+    for _ in 1 ..= 100_000_000 {
+        std::hint::black_box(TL_CELL.with(|refcell| { std::hint::black_box(refcell.borrow()); }));
+    }
+    let end = Date::now();
+    console_log!("ThreadLocal took {:?}.", Duration::from_secs_f64((end - start)/1000f64));
 
-    console_error_panic_hook::set_once();
+    let start = Date::now();
+    for _ in 1 ..= 100_000_000 {
+        std::hint::black_box(RWLOCK.read().unwrap());
+    }
+    let end = Date::now();
+    console_log!("RwLock took {:?}.", Duration::from_secs_f64((end - start)/1000f64));
+
     let mut bytes = vec![0; BYTES];
     let mut ser_times: Vec<Duration> = Vec::with_capacity(RUNS);
     let mut de_times: Vec<Duration> = Vec::with_capacity(RUNS);
-    let mut b64_ser_times: Vec<Duration> = Vec::with_capacity(RUNS);
     let mut b64_de_times: Vec<Duration> = Vec::with_capacity(RUNS);
     let mut b64_slice_ser_times: Vec<Duration> = Vec::with_capacity(RUNS);
+    let mut dumb_ser_times: Vec<Duration> = Vec::with_capacity(RUNS);
+    let mut dumb_de_times: Vec<Duration> = Vec::with_capacity(RUNS);
+
+    let mut u16s = vec![0; BYTES];
 
     for _ in 1 ..= RUNS {
         getrandom(&mut bytes).expect("Didn't get the bytes.");
@@ -272,21 +390,32 @@ pub fn make_call() {
         assert_eq!(back, bytes);
 
         let start = Date::now();
-        let s2: JsString = encode(&bytes).into();
+        for i in 0 .. BYTES {
+            u16s[i] = bytes[i] as u16;
+        }
+        let s = utf16_to_jsstring(&u16s);
         let mid = Date::now();
-        let back = decode(String::from(s2.clone())).expect("Should have been good bytes");
+        jsstring_to_utf16(&s, &mut u16s).unwrap();
+        let back = u16s.iter().map(|&x| { x as u8 }).collect::<Vec<u8>>();
         let end = Date::now();
-        b64_ser_times.push(Duration::from_secs_f64((mid - start)/1000f64));
-        b64_de_times.push(Duration::from_secs_f64((end - mid) / 1000f64));
+        dumb_ser_times.push(Duration::from_secs_f64((mid-start)/1000f64));
+        dumb_de_times.push(Duration::from_secs_f64((end-mid)/1000f64));
         assert_eq!(back, bytes);
 
-        let mut dest = vec![0; 8*1024*1024];
-        let start = Date::now();
-        let s2: JsString = { let len = encode_config_slice(&bytes, STANDARD, &mut dest); dest.truncate(len); unsafe { String::from_utf8_unchecked(dest) }.into() };
-        let mid = Date::now();
-        let back = decode(String::from(s2.clone())).expect("Should have been good bytes");
-        b64_slice_ser_times.push(Duration::from_secs_f64((mid - start)/1000f64));
-        assert_eq!(back, bytes);
+        unsafe {
+            let mut dest = String::with_capacity(6*1024*1024);
+            dest.as_mut_vec().resize(6*1024*1024, 0);
+            let start = Date::now();
+            let len = encode_config_slice(&bytes, STANDARD, dest.as_mut_vec().as_mut_slice());
+            dest.truncate(len);
+            let s = std::hint::black_box(JsString::from(dest));
+            let mid = Date::now();
+            let back = std::hint::black_box(decode(String::from(s)).expect("Should have been good bytes"));
+            let end = Date::now();
+            b64_slice_ser_times.push(Duration::from_secs_f64((mid - start)/1000f64));
+            b64_de_times.push(Duration::from_secs_f64((end-mid)/1000f64));
+            assert_eq!(back, bytes);
+        }
     }
 
     ser_times.sort();
@@ -298,17 +427,21 @@ pub fn make_call() {
     console_log!("SERIALIZE: Max {:?} -- Min {:?} -- Avg {:?} -- 99% {:?}", ser_max, ser_min, ser_avg, ser_99);
     console_log!("DESERIALIZE: Max {:?} -- Min {:?} -- Avg {:?} -- 99% {:?}", de_max, de_min, de_avg, de_99);
 
-    b64_ser_times.sort();
-    let (b64_ser_max, b64_ser_min, b64_ser_99) = (b64_ser_times[RUNS-1], b64_ser_times[0], b64_ser_times[NINE_NINE_INDEX]);
-    let b64_ser_avg: Duration = b64_ser_times.iter().sum::<Duration>() / (RUNS as u32);
-    b64_de_times.sort();
-    let (b64_de_max, b64_de_min, b64_de_99) = (b64_de_times[RUNS-1], b64_de_times[0], b64_de_times[NINE_NINE_INDEX]);
-    let b64_de_avg: Duration = b64_de_times.iter().sum::<Duration>() / (RUNS as u32);
-    console_log!("BASE64 SERIALIZE: Max {:?} -- Min {:?} -- Avg {:?} -- 99% {:?}", b64_ser_max, b64_ser_min, b64_ser_avg, b64_ser_99);
-    console_log!("BASE64 DESERIALIZE: Max {:?} -- Min {:?} -- Avg {:?} -- 99% {:?}", b64_de_max, b64_de_min, b64_de_avg, b64_de_99);
-
     b64_slice_ser_times.sort();
     let (b64_slice_ser_max, b64_slice_ser_min, b64_slice_ser_99) = (b64_slice_ser_times[RUNS-1], b64_slice_ser_times[0], b64_slice_ser_times[NINE_NINE_INDEX]);
     let b64_slice_ser_avg: Duration = b64_slice_ser_times.iter().sum::<Duration>() / (RUNS as u32);
+    b64_de_times.sort();
+    let (b64_de_max, b64_de_min, b64_de_99) = (b64_de_times[RUNS-1], b64_de_times[0], b64_de_times[NINE_NINE_INDEX]);
+    let b64_de_avg: Duration = b64_de_times.iter().sum::<Duration>() / (RUNS as u32);
     console_log!("BASE64 SLICE SERIALIZE: Max {:?} -- Min {:?} -- Avg {:?} -- 99% {:?}", b64_slice_ser_max, b64_slice_ser_min, b64_slice_ser_avg, b64_slice_ser_99);
+    console_log!("BASE64 DESERIALIZE: Max {:?} -- Min {:?} -- Avg {:?} -- 99% {:?}", b64_de_max, b64_de_min, b64_de_avg, b64_de_99);
+
+    dumb_ser_times.sort();
+    let (dumb_ser_max, dumb_ser_min, dumb_ser_99) = (dumb_ser_times[RUNS-1], dumb_ser_times[0], dumb_ser_times[NINE_NINE_INDEX]);
+    let dumb_ser_avg: Duration = dumb_ser_times.iter().sum::<Duration>() / (RUNS as u32);
+    dumb_de_times.sort();
+    let (dumb_de_max, dumb_de_min, dumb_de_99) = (dumb_de_times[RUNS-1], dumb_de_times[0], dumb_de_times[NINE_NINE_INDEX]);
+    let dumb_de_avg: Duration = dumb_de_times.iter().sum::<Duration>() / (RUNS as u32);
+    console_log!("DUMB SERIALIZE: Max {:?} -- Min {:?} -- Avg {:?} -- 99% {:?}", dumb_ser_max, dumb_ser_min, dumb_ser_avg, dumb_ser_99);
+    console_log!("DUMB DESERIALIZE: Max {:?} -- Min {:?} -- Avg {:?} -- 99% {:?}", dumb_de_max, dumb_de_min, dumb_de_avg, dumb_de_99);
 }

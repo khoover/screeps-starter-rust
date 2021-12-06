@@ -1,4 +1,4 @@
-const exec = require('child_process').exec;
+const spawn = require('child_process').spawn;
 const { src, dest, series, parallel } = require('gulp');
 const through2 = require('through2');
 const recast = require('recast');
@@ -13,12 +13,8 @@ const print = recast.print;
 const n = recast.types.namedTypes;
 const b = recast.types.builders;
 
-function wasm_pack(cb) {
-    exec('wasm-pack build --target web --release --out-dir rust-out --no-typescript', (err, stdout, stderr) => {
-        console.log(stdout);
-        console.error(stderr);
-        cb(err);
-    });
+function wasm_pack() {
+    return spawn('rustup', ['run', 'nightly', 'wasm-pack', 'build', '--target', 'web', '--release', '--out-dir', 'rust-out', '--no-typescript'], { shell: '/bin/bash', stdio: 'inherit' });
 }
 
 function parse_generated_js(code) {
@@ -69,7 +65,7 @@ function parse_generated_js(code) {
             return false;
         },
         visitImportDeclaration(path) {
-            if (path.node.source.value === "fastestsmallesttextencoderdecoder-encodeinto") imported_polyfill = true;
+            if (path.node.source.value === "../EncoderDecoderTogether.min.js") imported_polyfill = true;
             return false;
         }
     });
@@ -77,10 +73,11 @@ function parse_generated_js(code) {
     if (!imported_polyfill) ast.program.body.unshift(
         b.importDeclaration(
             [
-                b.importSpecifier(b.identifier('TextEncoder')),
-                b.importSpecifier(b.identifier('TextDecoder'))
+            /*    b.importSpecifier(b.identifier('TextEncoder')),
+                b.importSpecifier(b.identifier('TextDecoder'))*/
             ],
-            b.literal("fastestsmallesttextencoderdecoder-encodeinto")
+            //b.literal('util')
+            b.literal("../EncoderDecoderTogether.min.js")
         )
     );
     return recast.print(ast).code;
